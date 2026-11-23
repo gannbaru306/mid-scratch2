@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>MIDI to Scratch by gannbaru306</title>
+  <script src="https://unpkg.com/picoaudio/dist/browser/PicoAudio.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/build/Midi.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #drop-zone { border: 2px dashed #aaa; padding: 40px; text-align: center; color: #666; cursor: pointer; margin-bottom: 20px; }
+    #drop-zone.dragover { border-color: #00aaff; background-color: #f0f8ff; }
+    #log { background: #f4f4f4; border: 1px solid #ccc; padding: 10px; white-space: pre-wrap; height: 200px; overflow-y: auto; margin-top: 10px; }
+    .option-group { margin-bottom: 15px; padding: 10px; background: #eef2f5; border-radius: 5px; }
+    .option-group label { margin-right: 15px; cursor: pointer; user-select: none; }
+  </style>
+</head>
+<body>
+  <h2>MIDI変換ツールv6.0</h2>
+  <p style="margin-bottom: 15px;">
+  <a href="https://scratch.mit.edu/projects/1221707096/" target="_blank" rel="noopener noreferrer">こちら</a>でデータを読み込んで演奏することができます。
+  </p>
+  <div id="drop-zone">ここをクリックするか、MIDIファイルをドラッグしてください</div>
+  <input type="file" id="midiFile" accept=".mid,.midi" style="display:none;" />
+  
+  <div class="option-group">
+    <strong>変換設定:</strong><br>
+    <label><input type="checkbox" id="enableMerge" checked> 同種楽器の統合</label>
+    <label><input type="checkbox" id="enableDistribute" checked> 高密度トラックの自動分散</label>
+  </div>
+
+  <button id="convertBtn">変換してダウンロード</button>
+  <div id="player-controls" style="margin-top: 15px;">
+    <button id="playBtn">再生</button>
+    <button id="pauseBtn">一時停止</button>
+  </div>
+  <label for="volumeSlider">音量</label>
+  <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.5">
+  <pre id="log">ログ出力エリア</pre>
+
+  <script>
+    const picoAudio = new PicoAudio();
+    let midiLoaded = false;
+    let currentVolume = 0.5;
+    let midi = null;
+    const log = document.getElementById("log");
+
+    const dropZone = document.getElementById("drop-zone");
+    const fileInput = document.getElementById("midiFile");
+
+    dropZone.addEventListener("click", () => fileInput.click());
+    dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+    dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+    dropZone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("dragover");
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        try { fileInput.files = e.dataTransfer.files; } catch (err) {}
+        handleFile(file);
+      }
+    });
+
+    fileInput.addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (file) handleFile(file);
+    });
+
+    async function handleFile(file) {
+      try {
+        log.textContent = `読み込み中: ${file.name}...`;
+        const arrayBuffer = await file.arrayBuffer();
+        if (typeof Midi === 'undefined') throw new Error("Midiライブラリが読み込まれていません。");
+
+        midi = new Midi(arrayBuffer);
+        await picoAudio.init();
+        picoAudio.setData(picoAudio.parseSMF(arrayBuffer));
+        midiLoaded = true;
+        log.textContent += "\n再生準備完了";
+      } catch (error) {
+        log.textContent += `\n【エラー】ファイルの処理に失敗しました:\n${error.message}`;
+      }
+    }
+
+    document.getElementById("playBtn").addEventListener("click", () => {
+      if (!midiLoaded) { log.textContent += "\nMIDIファイルを読み込んでください"; return; }
+      picoAudio.play();
+      log.textContent += "\n再生開始";
+    });
+
+    document.getElementById("pauseBtn").addEventListener("click", () => {
+      picoAudio.stop();
+      log.textContent += "\n一時停止しました";
+    });
+
+    document.getElementById("volumeSlider").addEventListener("input", (e) => {
+      currentVolume = parseFloat(e.target.value);
+      picoAudio.setMasterVolume(currentVolume);
+    });
+
+    const gmToScratchId = gm => {
+      const maps = {
+        0: 1, 1: 1, 2: 2, 3: 1, 4: 2, 5: 2, 6: 1, 7: 1,
+        8: 16, 9: 16, 10: 17, 11: 16, 12: 19, 13: 19, 14: 19, 15: 16,
+        16: 3, 17: 3, 18: 3, 19: 3, 20: 3, 21: 3, 22: 3, 23: 3,
+        24: 4, 25: 4, 26: 5, 27: 5, 28: 5, 29: 5, 30: 5, 31: 5,
+        32: 6, 33: 6, 34: 6, 35: 6, 36: 6, 37: 6, 38: 6, 39: 6,
+        40: 8, 41: 8, 42: 8, 43: 8, 44: 7, 45: 7, 46: 13, 47: 18,
+        48: 8, 49: 8, 50: 8, 51: 8, 52: 15, 53: 15, 54: 15, 55: 15,
+        56: 9, 57: 9, 58: 9, 59: 9, 60: 9, 61: 9, 62: 9, 63: 9,
+        64: 11, 65: 11, 66: 11, 67: 11, 68: 10, 69: 10, 70: 14, 71: 10,
+        72: 13, 73: 12, 74: 12, 75: 12, 76: 12, 77: 12, 78: 12, 79: 12,
+        80: 20, 81: 20, 82: 20, 83: 20, 84: 20, 85: 20, 86: 20, 87: 20,
+        88: 21, 89: 21, 90: 21, 91: 21, 92: 21, 93: 21, 94: 21, 95: 21,
+        96: 21, 97: 21, 98: 21, 99: 21, 100: 21, 101: 21, 102: 21, 103: 21,
+        104: 5, 105: 5, 106: 5, 107: 4, 108: 13, 109: 12, 110: 11, 111: 12,
+        112: 16, 113: 16, 114: 18, 115: 18, 116: 18, 117: 18, 118: 18, 119: 18,
+        120: 13, 121: 13, 122: 13, 123: 13, 124: 13, 125: 13, 126: 13, 127: 13
+      };
+      return maps[gm] || 1;
+    };
+
+
+    const midiToScratchDrum = {
+      27: 3, 28: 3, 29: 15, 30: 15, 31: 3, 32: 3, 33: 3, 34: 12,
+      35: 2, 36: 2, 37: 3, 38: 1, 39: 8, 40: 1, 41: 1, 42: 6,
+      43: 1, 44: 6, 45: 1, 46: 5, 47: 1, 48: 1, 49: 4, 50: 1,
+      51: 4, 52: 4, 53: 11, 54: 7, 55: 4, 56: 11, 57: 4, 58: 17, 59: 4,
+      60: 13, 61: 13, 62: 14, 63: 14, 64: 14, 65: 13, 66: 14,
+      67: 11, 68: 11, 69: 11, 70: 15, 71: 12, 72: 12, 73: 15, 74: 16,
+      75: 9, 76: 10, 77: 10, 78: 10, 79: 10, 80: 12, 81: 12
+    };
+
+
+    const customInstruments = {
+      "8-bit square": 21, "8-bit sawtooth": 20, "NES triangle": 6, "FM bell": 16,
+      "ambient pad": 21, "square lead": 21, "saw lead": 20, "triangle wave": 6,
+      "pulse wave": 21, "chip bass": 6, "chip lead": 20, "retro pad": 21,
+      "vox": 15, "voice": 15, "pluck": 4, "synth brass": 9, "synth flute": 12,
+      "synth choir": 15, "bit crash": 21, "glitch": 21, "laser": 20, "noise": 0,
+      "french horn": 9, "english horn": 10, "synth horn": 20, "ambient horn": 21,
+      "retro horn": 20, "brass horn": 9
+    };
+
+    // ドラムトラック判定（v5.5: 判定を一本化し、誤検出を抑制）
+    const DRUM_NAME_REGEX = /\b(drums?|drum\s?kit|percussion|kick|snare|hi-?hats?|toms?|cymbals?)\b|ドラム|打楽器|パーカッション/i;
+    const isDrumTrack = track => {
+      const notes = track.notes.map(n => n.midi);
+      if (notes.length === 0) return false;
+
+      // 1. GM規格のパーカッションチャンネル(ch10 = index 9)は無条件でドラム
+      if (track.channel === 9 || track.instrument?.percussion === true || track.instrument?.family === "drums") return true;
+
+      // 2. それ以外はトラック名にドラム系の語があり、かつほぼ全音がドラム音域の場合のみドラム扱い
+      //    （音域だけでドラムと判断すると、低音域のメロディ/ベースが誤判定されるため）
+      const inRange = notes.filter(n => midiToScratchDrum[n] !== undefined).length;
+      return DRUM_NAME_REGEX.test(track.name || "") && (inRange / notes.length) >= 0.9;
+    };
+
+    const normalizeVelocity = v => Math.max(Math.round((v ** 2) * 100), 10);
+    const sanitizeLabel = text => text.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    document.getElementById("convertBtn").addEventListener("click", async () => {
+      if (!midi) { alert("MIDIファイルを選択してください"); return; }
+
+      const enableMerge = document.getElementById("enableMerge").checked;
+      const enableDistribute = document.getElementById("enableDistribute").checked;
+
+      const trackNotes = {};
+      const scratchBpm = 150;
+
+      midi.tracks.forEach((track, i) => {
+        const label = `${track.name || `Track${i + 1}`}_Track${i + 1}`;
+        const normalizedLabel = sanitizeLabel(label);
+        const programNumber = track.instrument?.number ?? null;
+
+        let scratchId = undefined;
+        for (const name in customInstruments) {
+          if (normalizedLabel.includes(sanitizeLabel(name))) { scratchId = customInstruments[name]; break; }
+        }
+        if (!scratchId && programNumber !== null) scratchId = gmToScratchId(programNumber);
+
+        const isDrum = isDrumTrack(track);
+        const noteList = [];
+
+        track.notes.forEach(note => {
+          const startFrame = Math.round(note.time * 30);
+          const durationBeats = (note.duration * scratchBpm) / 60;
+          let quantizedBeats = Math.round(durationBeats * 12) / 12;
+          if (quantizedBeats <= 0) quantizedBeats = 1 / 12;
+
+          const cleanBeats = Number((Math.round(quantizedBeats * 100) / 100).toFixed(2));
+          const volume = normalizeVelocity(note.velocity);
+
+          if (isDrum) {
+            const drumId = midiToScratchDrum[note.midi];
+            if (drumId) {
+              if (!trackNotes["drums"]) trackNotes["drums"] = { scratch_id: 0, notes: [] };
+              trackNotes["drums"].notes.push([drumId, startFrame, cleanBeats, volume]);
+            }
+          } else {
+            noteList.push([note.midi, startFrame, cleanBeats, volume]);
+          }
+        });
+
+        if (!isDrum && noteList.length > 0) trackNotes[label] = { scratch_id: scratchId, notes: noteList };
+      });
+
+      const undefinedDrumNotes = new Set();
+      midi.tracks.forEach(track => {
+        if (isDrumTrack(track)) {
+          track.notes.forEach(note => { if (!midiToScratchDrum[note.midi]) undefinedDrumNotes.add(note.midi); });
+        }
+      });
+
+
+      if (undefinedDrumNotes.size > 0) {
+        log.textContent += "\n以下の内容をgannbaru306のMIDI再生プログラムのコメント欄に貼り付けてください。\nドラムが正しく認識されませんでした。\n";
+        [...undefinedDrumNotes].sort((a, b) => a - b).forEach(n => log.textContent += `${n}\n`);
+      }
+
+      log.textContent += "\n変換完了！ノート数:\n"; 
+      Object.entries(trackNotes).forEach(([label, data]) => log.textContent += `${label}: ${data.notes.length} notes\n`);
+
+      const validLabels = Object.keys(trackNotes).filter(label => trackNotes[label].notes.length > 0);
+      
+      const groupedTracks = [];
+      if (enableMerge) {
+        const groupedByInst = {};
+        validLabels.forEach(label => {
+          const id = trackNotes[label].scratch_id;
+          if (!groupedByInst[id]) groupedByInst[id] = [];
+          groupedByInst[id].push(...trackNotes[label].notes);
+        });
+        Object.keys(groupedByInst).forEach(id => {
+          groupedTracks.push({ scratch_id: parseInt(id, 10), notes: groupedByInst[id] });
+        });
+      } else {
+        validLabels.forEach(label => {
+          groupedTracks.push({ scratch_id: trackNotes[label].scratch_id, notes: trackNotes[label].notes });
+        });
+      }
+
+      groupedTracks.forEach(group => {
+        group.notes.sort((a, b) => a[1] - b[1]);
+        const frameCounts = {};
+        let maxC = 0;
+        group.notes.forEach(n => {
+          const f = n[1];
+          frameCounts[f] = (frameCounts[f] || 0) + 1;
+          if (frameCounts[f] > maxC) maxC = frameCounts[f];
+        });
+        group.maxSimultaneous = maxC;
+      });
+
+      let isBlackMidi = groupedTracks.some(g => g.maxSimultaneous >= 10);
+
+      let droppedTracks = [];
+      let targetTracks = groupedTracks;
+      if (targetTracks.length > 15) {
+        targetTracks.sort((a, b) => b.notes.length - a.notes.length);
+        droppedTracks = targetTracks.slice(15);
+        targetTracks = targetTracks.slice(0, 15);
+      }
+
+      const finalTrackList = [];
+      if (enableDistribute && isBlackMidi) {
+        const allocatedSlots = targetTracks.map(() => 1);
+        let remainingSlots = 15 - targetTracks.length;
+
+        while (remainingSlots > 0) {
+          let bestIdx = -1;
+          let maxCurrentPerSlot = 0;
+
+          targetTracks.forEach((tr, idx) => {
+            if (tr.maxSimultaneous >= 10) {
+              const currentPerSlot = tr.maxSimultaneous / allocatedSlots[idx];
+              if (currentPerSlot > 5 && currentPerSlot > maxCurrentPerSlot) {
+                maxCurrentPerSlot = currentPerSlot;
+                bestIdx = idx;
+              }
+            }
+          });
+
+          if (bestIdx === -1) break;
+          allocatedSlots[bestIdx]++;
+          remainingSlots--;
+        }
+
+        targetTracks.forEach((tr, idx) => {
+          const slotsCount = allocatedSlots[idx];
+          if (slotsCount === 1) {
+            finalTrackList.push({ scratch_id: tr.scratch_id, notes: tr.notes });
+          } else {
+            const subTracks = Array.from({ length: slotsCount }, () => []);
+            let currentFrame = null;
+            let frameNoteIndex = 0;
+
+            tr.notes.forEach(note => {
+              const frame = note[1];
+              if (frame !== currentFrame) {
+                currentFrame = frame;
+                frameNoteIndex = 0;
+              }
+              subTracks[frameNoteIndex % slotsCount].push(note);
+              frameNoteIndex++;
+            });
+
+            subTracks.forEach(sNotes => {
+              if (sNotes.length > 0) finalTrackList.push({ scratch_id: tr.scratch_id, notes: sNotes });
+            });
+          }
+        });
+        log.textContent += "\nトラックを自動分散しました。\n";
+      } else {
+        targetTracks.forEach(tr => finalTrackList.push({ scratch_id: tr.scratch_id, notes: tr.notes }));
+        if (isBlackMidi) {
+          log.textContent += "\n設定により自動分散されませんでした。\n";
+        } else {
+          log.textContent += "\n自動分散しませんでした。\n";
+        }
+      }
+
+      if (droppedTracks.length > 0) {
+        log.textContent += "scratchで再生すると以下のトラックが抜け落ちます:\n";
+        droppedTracks.forEach(tr => log.textContent += `楽器番号 ${tr.scratch_id} (${tr.notes.length}音)\n`);
+      }
+
+      // v6: 各トラックの最大同時発音数からクローン数を決める
+      // 同時発音は持続時間も考慮する。クローン数 = 最大同時発音数 + 4 (最低6)
+      const maxConcurrentSounding = notes => {
+        const events = [];
+        notes.forEach(([pitch, start, beats]) => {
+          events.push([start, 1]);
+          events.push([start + beats * 12, -1]);
+        });
+        events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+        let cur = 0, mx = 0;
+        events.forEach(([, d]) => { cur += d; mx = Math.max(mx, cur); });
+        return mx;
+      };
+      const cloneCounts = finalTrackList.map(tr => Math.max(maxConcurrentSounding(tr.notes) + 4, 6));
+      const totalClones = cloneCounts.reduce((a, b) => a + b, 0);
+      log.textContent += `\nクローン数: ${cloneCounts.join(", ")} (合計 ${totalClones} 体)\n`;
+      if (totalClones > 300) {
+        log.textContent += "【警告】クローン合計が上限(300)を超えています。音が遅れる可能性があります。\n";
+      }
+
+      const lines = [];
+      finalTrackList.forEach(tr => lines.push(`${tr.scratch_id}`));
+      lines.push("/");
+      cloneCounts.forEach(c => lines.push(`${c}`));
+      lines.push("/");
+
+      finalTrackList.forEach(tr => {
+        tr.notes.forEach(([note, frame, beats, volume]) => {
+          lines.push(`${note}/${frame}/${beats}/${volume}`);
+        });
+        lines.push("/");
+      });
+
+      const finalText = lines.join("\n");
+      const timestamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 15);
+      const blob = new Blob([finalText], { type: "text/plain" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `combined_notes_${timestamp}.txt`;
+      link.click();
+    });
+  </script>
+</body>
+</html>
